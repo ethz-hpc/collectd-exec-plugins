@@ -31,12 +31,16 @@ def value(line)
   line.delete('.').split(':')[1].to_i
 end
 
+def value_float(line)
+  line.delete('.').split(':')[1].to_i/10	
+end
+
 # returns a hash containing the Infiniband interface performance
 # metrics, for a given LID on port
 def read_values(lid,port=1)
-  data = { :rbytes => 0, :tbytes => 0, :rpkts => 0, :tpkts => 0 }
+  data = { :rbytes => 0, :tbytes => 0, :rpkts => 0, :tpkts => 0, :speedact => 0}
   # read the perfquery manual for more information
-  command = %Q[sudo /usr/sbin/perfquery -r #{lid} #{port} 0xf000]
+  command = %Q[/usr/sbin/perfquery -r #{lid} #{port} 0xf000]
   # clean all read counters, except of error counts
   `#{command}`.split("\n").each do |line|
     case line
@@ -72,6 +76,15 @@ def read_values(lid,port=1)
       data[:buferrors] = value(line)
     when /^VL15Dropped/
       data[:vdropped] =value(line)
+    end
+  end
+
+  #read ibportstate for speed 
+  command = %Q[/usr/sbin/ibportstate #{lid} #{port} | awk '{if ($1 ~ /^LinkSpeedActive/ )print $1}' | head -n1]    
+  `#{command}`.split("\n").each do |line|
+    case line
+    when /^LinkSpeedActive/ #LinkSpeedActive
+        data[:speedact] = value_float(line)
     end
   end
   return data
@@ -121,6 +134,7 @@ while true
       pkg = [data[:vdropped],data[:xmtd]].join(':')
       $stdout.puts %Q[PUTVAL #{hostname}/infiniband/ib_pkgerror-port#{port} interval=#{interval} #{time}:#{pkg}]
     end
+    $stdout.puts %Q[PUTVAL #{hostname}/infiniband/ib_speed-port#{port} interval=#{interval} #{time}:#{data[:speedact]}]
     # clear output buffer before sleeping
     $stdout.flush
   end
